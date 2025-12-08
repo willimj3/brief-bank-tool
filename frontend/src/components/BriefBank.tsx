@@ -10,7 +10,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { listBriefs, uploadBrief, deleteBrief, getBrief } from '../services/api';
-import type { Brief } from '../types';
 
 export default function BriefBank() {
   const queryClient = useQueryClient();

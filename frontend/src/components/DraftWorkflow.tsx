@@ -3,13 +3,11 @@ import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   FileText,
-  ChevronRight,
   Loader2,
   AlertTriangle,
   CheckCircle,
   RefreshCw,
   Download,
-  Eye,
   Edit3,
 } from 'lucide-react';
 import {
@@ -154,7 +152,7 @@ export default function DraftWorkflow() {
             <h3 className="text-sm font-semibold text-gray-700">Outline</h3>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {draft.outline.map((section, idx) => {
+            {draft.outline.map((section) => {
               const isGenerated = draft.sections.some(
                 (s) => s.section_id === section.id
               );

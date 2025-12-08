@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
-import { FileText, Search, PenTool, Database } from 'lucide-react';
+import { FileText, PenTool, Database } from 'lucide-react';
 import BriefBank from './components/BriefBank';
 import NewDraft from './components/NewDraft';
 import DraftWorkflow from './components/DraftWorkflow';
