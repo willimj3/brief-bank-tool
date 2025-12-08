@@ -15,9 +15,10 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .models import (
@@ -486,6 +487,28 @@ async def export_draft_to_docx(draft_id: str):
         raise HTTPException(status_code=500, detail=f"Export failed: {e}")
 
 
+# ============ Static Files & SPA Fallback ============
+
+# Check if we have a static directory (production build)
+STATIC_DIR = Path(__file__).parent.parent / "static"
+if STATIC_DIR.exists():
+    # Serve static files
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        """Serve the SPA for all non-API routes."""
+        # Don't intercept API routes
+        if full_path.startswith("api/") or full_path == "health":
+            raise HTTPException(status_code=404)
+
+        # Serve index.html for SPA routing
+        index_path = STATIC_DIR / "index.html"
+        if index_path.exists():
+            return HTMLResponse(content=index_path.read_text())
+        raise HTTPException(status_code=404)
+
+
 # ============ Startup ============
 
 @app.on_event("startup")
@@ -499,3 +522,9 @@ async def startup():
         print("✓ ANTHROPIC_API_KEY is set")
     else:
         print("⚠ WARNING: ANTHROPIC_API_KEY not set - generation will fail")
+
+    # Log static file status
+    if STATIC_DIR.exists():
+        print(f"✓ Serving static files from {STATIC_DIR}")
+    else:
+        print("ℹ No static directory - running in API-only mode")
