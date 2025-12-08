@@ -1,0 +1,19 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+
+# Document processing
+python-docx>=1.1.2
+pypdf2>=3.0.1
+pdfplumber>=0.11.4
+
+# AI and embeddings
+anthropic>=0.40.0
+numpy>=2.0.0
+scikit-learn>=1.5.0
+
+# Utilities
+python-dotenv>=1.0.1
+pydantic>=2.10.0
+pydantic-settings>=2.6.0

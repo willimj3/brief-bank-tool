@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (don't commit uploaded briefs or generated files)
+data/briefs/*
+data/embeddings/*
+data/exports/*
+!data/briefs/.gitkeep
+!data/embeddings/.gitkeep
+!data/exports/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Build outputs
+frontend/dist/
+*.log
