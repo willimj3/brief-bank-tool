@@ -261,29 +261,44 @@ def extract_case_info(text: str) -> tuple[Optional[str], Optional[str]]:
     # Case name - look for "v." pattern in caption area (first 2000 chars)
     caption_text = text[:2000]
 
+    # Words/phrases that indicate we've captured court info, not party names
+    court_indicators = [
+        'district', 'court', 'circuit', 'united states', 'state of',
+        'superior', 'supreme', 'appellate', 'northern', 'southern',
+        'eastern', 'western', 'central', 'middle'
+    ]
+
     # Try multiple patterns for case name extraction
     case_name_patterns = [
-        # Standard format: PLAINTIFF v. DEFENDANT (all caps)
-        r"([A-Z][A-Z\s\.,\']+?)\s*,?\s*(?:Plaintiff|Petitioner|Appellant)s?\s*,?\s*v\.?\s+([A-Z][A-Z\s\.,\']+?)\s*,?\s*(?:Defendant|Respondent|Appellee)s?",
-        # Mixed case with v.
-        r"([A-Z][a-zA-Z\s\.,\'\-]+?)\s+v\.\s+([A-Z][a-zA-Z\s\.,\'\-]+?)(?:\s*,|\s*\n|\s*Case|\s*No\.)",
-        # All caps with v.
-        r"([A-Z][A-Z\s\.,\']+)\s+v\.\s+([A-Z][A-Z\s\.,\']+)",
+        # Pattern with Plaintiff/Defendant labels (most reliable)
+        r"([A-Z][A-Z\s\.,\'\-]+?)\s*,\s*Plaintiffs?\s*,?\s*v\.?\s+([A-Z][A-Z\s\.,\'\-]+?)\s*,\s*Defendants?",
+        # Mixed case with explicit labels
+        r"([A-Z][a-zA-Z\s\.,\'\-]+?)\s*,\s*Plaintiffs?\s*,?\s*v\.?\s+([A-Z][a-zA-Z\s\.,\'\-]+?)\s*,\s*Defendants?",
+        # All caps: NAME v. NAME (but require comma or newline after defendant to avoid grabbing too much)
+        r"([A-Z][A-Z\s\.,\'\-]{2,50}?)\s+v\.\s+([A-Z][A-Z\s\.,\'\-]{2,50}?)(?:\s*,|\s*\n|$)",
     ]
 
     for pattern in case_name_patterns:
-        match = re.search(pattern, caption_text, re.MULTILINE)
+        match = re.search(pattern, caption_text, re.MULTILINE | re.IGNORECASE)
         if match:
             plaintiff = match.group(1).strip().rstrip(',').title()
             defendant = match.group(2).strip().rstrip(',').title()
+
             # Clean up extra whitespace
             plaintiff = ' '.join(plaintiff.split())
             defendant = ' '.join(defendant.split())
+
+            # Skip if this looks like court info got captured
+            plaintiff_lower = plaintiff.lower()
+            if any(indicator in plaintiff_lower for indicator in court_indicators):
+                continue
+
             # Truncate if too long (keep it readable)
-            if len(plaintiff) > 40:
-                plaintiff = plaintiff[:37] + "..."
-            if len(defendant) > 40:
-                defendant = defendant[:37] + "..."
+            if len(plaintiff) > 50:
+                plaintiff = plaintiff[:47] + "..."
+            if len(defendant) > 50:
+                defendant = defendant[:47] + "..."
+
             case_name = f"{plaintiff} v. {defendant}"
             break
 
