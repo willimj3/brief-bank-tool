@@ -258,16 +258,53 @@ def extract_case_info(text: str) -> tuple[Optional[str], Optional[str]]:
             case_number = match.group(1)
             break
 
-    # Case name - look for "v." pattern in caption area (first 1000 chars)
-    caption_text = text[:1000]
-    case_name_pattern = r"([A-Z][A-Z\s\.,]+)\s+v\.\s+([A-Z][A-Z\s\.,]+)"
-    match = re.search(case_name_pattern, caption_text)
-    if match:
-        plaintiff = match.group(1).strip().title()
-        defendant = match.group(2).strip().title()
-        case_name = f"{plaintiff} v. {defendant}"
+    # Case name - look for "v." pattern in caption area (first 2000 chars)
+    caption_text = text[:2000]
+
+    # Try multiple patterns for case name extraction
+    case_name_patterns = [
+        # Standard format: PLAINTIFF v. DEFENDANT (all caps)
+        r"([A-Z][A-Z\s\.,\']+?)\s*,?\s*(?:Plaintiff|Petitioner|Appellant)s?\s*,?\s*v\.?\s+([A-Z][A-Z\s\.,\']+?)\s*,?\s*(?:Defendant|Respondent|Appellee)s?",
+        # Mixed case with v.
+        r"([A-Z][a-zA-Z\s\.,\'\-]+?)\s+v\.\s+([A-Z][a-zA-Z\s\.,\'\-]+?)(?:\s*,|\s*\n|\s*Case|\s*No\.)",
+        # All caps with v.
+        r"([A-Z][A-Z\s\.,\']+)\s+v\.\s+([A-Z][A-Z\s\.,\']+)",
+    ]
+
+    for pattern in case_name_patterns:
+        match = re.search(pattern, caption_text, re.MULTILINE)
+        if match:
+            plaintiff = match.group(1).strip().rstrip(',').title()
+            defendant = match.group(2).strip().rstrip(',').title()
+            # Clean up extra whitespace
+            plaintiff = ' '.join(plaintiff.split())
+            defendant = ' '.join(defendant.split())
+            # Truncate if too long (keep it readable)
+            if len(plaintiff) > 40:
+                plaintiff = plaintiff[:37] + "..."
+            if len(defendant) > 40:
+                defendant = defendant[:37] + "..."
+            case_name = f"{plaintiff} v. {defendant}"
+            break
 
     return case_name, case_number
+
+
+def generate_brief_title(case_name: Optional[str], case_number: Optional[str], filename: str) -> str:
+    """Generate a display title for a brief, preferring case name or number over filename."""
+    if case_name:
+        return case_name
+    if case_number:
+        return f"Case No. {case_number}"
+    # Fall back to filename without extension and UUID-like prefixes
+    name = Path(filename).stem
+    # Remove UUID prefix if present (e.g., "abc123-def456-...-filename" -> "filename")
+    if len(name) > 36 and name[8] == '-' and name[13] == '-':
+        # Looks like it starts with a UUID, try to get the rest
+        parts = name.split('-')
+        if len(parts) > 5:
+            name = '-'.join(parts[5:])
+    return name if name else filename
 
 
 def parse_docx(file_path: Path) -> Brief:
@@ -328,10 +365,13 @@ def parse_docx(file_path: Path) -> Brief:
         )
         sections.append(section)
 
+    # Generate a good display title
+    title = generate_brief_title(case_name, case_number, file_path.name)
+
     brief = Brief(
         id=brief_id,
         filename=file_path.name,
-        title=case_name,
+        title=title,
         court=court,
         jurisdiction=jurisdiction,
         case_name=case_name,
@@ -408,10 +448,13 @@ def parse_pdf(file_path: Path) -> Brief:
         )
         sections.append(section)
 
+    # Generate a good display title
+    title = generate_brief_title(case_name, case_number, file_path.name)
+
     brief = Brief(
         id=brief_id,
         filename=file_path.name,
-        title=case_name,
+        title=title,
         court=court,
         jurisdiction=jurisdiction,
         case_name=case_name,

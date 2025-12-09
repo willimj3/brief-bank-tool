@@ -8,16 +8,20 @@ import {
   AlertCircle,
   CheckCircle,
   Loader2,
+  X,
 } from 'lucide-react';
 import { listBriefs, uploadBrief, deleteBrief, getBrief } from '../services/api';
+
+interface UploadProgress {
+  filename: string;
+  status: 'pending' | 'uploading' | 'success' | 'error';
+  message?: string;
+}
 
 export default function BriefBank() {
   const queryClient = useQueryClient();
   const [selectedBrief, setSelectedBrief] = useState<string | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<{
-    status: 'idle' | 'uploading' | 'success' | 'error';
-    message?: string;
-  }>({ status: 'idle' });
+  const [uploadQueue, setUploadQueue] = useState<UploadProgress[]>([]);
 
   // Fetch briefs
   const { data: briefsData, isLoading } = useQuery({
@@ -32,25 +36,6 @@ export default function BriefBank() {
     enabled: !!selectedBrief,
   });
 
-  // Upload mutation
-  const uploadMutation = useMutation({
-    mutationFn: uploadBrief,
-    onSuccess: (data) => {
-      setUploadStatus({
-        status: 'success',
-        message: `Uploaded "${data.title || 'Brief'}": ${data.chunks_count} chunks, ${data.citations_count} citations`,
-      });
-      queryClient.invalidateQueries({ queryKey: ['briefs'] });
-      setTimeout(() => setUploadStatus({ status: 'idle' }), 5000);
-    },
-    onError: (error: Error) => {
-      setUploadStatus({
-        status: 'error',
-        message: error.message || 'Upload failed',
-      });
-    },
-  });
-
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: deleteBrief,
@@ -62,32 +47,92 @@ export default function BriefBank() {
     },
   });
 
+  // Process multiple files
+  const processFiles = useCallback(async (files: File[]) => {
+    const validFiles = files.filter(
+      (f) => f.name.endsWith('.docx') || f.name.endsWith('.pdf')
+    );
+
+    if (validFiles.length === 0) return;
+
+    // Initialize upload queue
+    const initialQueue: UploadProgress[] = validFiles.map((f) => ({
+      filename: f.name,
+      status: 'pending',
+    }));
+    setUploadQueue(initialQueue);
+
+    // Process files sequentially
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+
+      // Update status to uploading
+      setUploadQueue((prev) =>
+        prev.map((item, idx) =>
+          idx === i ? { ...item, status: 'uploading' } : item
+        )
+      );
+
+      try {
+        const result = await uploadBrief(file);
+        setUploadQueue((prev) =>
+          prev.map((item, idx) =>
+            idx === i
+              ? {
+                  ...item,
+                  status: 'success',
+                  message: `${result.chunks_count} chunks, ${result.citations_count} citations`,
+                }
+              : item
+          )
+        );
+        queryClient.invalidateQueries({ queryKey: ['briefs'] });
+      } catch (error) {
+        setUploadQueue((prev) =>
+          prev.map((item, idx) =>
+            idx === i
+              ? {
+                  ...item,
+                  status: 'error',
+                  message: error instanceof Error ? error.message : 'Upload failed',
+                }
+              : item
+          )
+        );
+      }
+    }
+
+    // Clear successful uploads after 5 seconds
+    setTimeout(() => {
+      setUploadQueue((prev) => prev.filter((item) => item.status === 'error'));
+    }, 5000);
+  }, [queryClient]);
+
   // Handle file drop
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       const files = Array.from(e.dataTransfer.files);
-      const validFile = files.find(
-        (f) => f.name.endsWith('.docx') || f.name.endsWith('.pdf')
-      );
-      if (validFile) {
-        setUploadStatus({ status: 'uploading' });
-        uploadMutation.mutate(validFile);
-      }
+      processFiles(files);
     },
-    [uploadMutation]
+    [processFiles]
   );
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-        setUploadStatus({ status: 'uploading' });
-        uploadMutation.mutate(file);
-      }
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      processFiles(files);
+      // Reset input so same files can be selected again
+      e.target.value = '';
     },
-    [uploadMutation]
+    [processFiles]
   );
+
+  const clearUploadItem = (index: number) => {
+    setUploadQueue((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const isUploading = uploadQueue.some((item) => item.status === 'uploading' || item.status === 'pending');
 
   return (
     <div className="grid grid-cols-3 gap-6 h-[calc(100vh-140px)]">
@@ -102,19 +147,25 @@ export default function BriefBank() {
 
         {/* Upload Area */}
         <div
-          className="m-4 p-4 border-2 border-dashed border-gray-300 rounded-lg text-center hover:border-blue-400 transition-colors cursor-pointer"
+          className={`m-4 p-4 border-2 border-dashed rounded-lg text-center transition-colors cursor-pointer ${
+            isUploading
+              ? 'border-blue-400 bg-blue-50'
+              : 'border-gray-300 hover:border-blue-400'
+          }`}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
         >
           <input
             type="file"
             accept=".docx,.pdf"
+            multiple
             onChange={handleFileSelect}
             className="hidden"
             id="file-upload"
+            disabled={isUploading}
           />
-          <label htmlFor="file-upload" className="cursor-pointer">
-            {uploadStatus.status === 'uploading' ? (
+          <label htmlFor="file-upload" className={`cursor-pointer ${isUploading ? 'pointer-events-none' : ''}`}>
+            {isUploading ? (
               <Loader2 className="w-8 h-8 mx-auto text-blue-500 animate-spin" />
             ) : (
               <Upload className="w-8 h-8 mx-auto text-gray-400" />
@@ -122,25 +173,51 @@ export default function BriefBank() {
             <p className="mt-2 text-sm text-gray-600">
               Drop DOCX or PDF files here
             </p>
-            <p className="text-xs text-gray-400">or click to browse</p>
+            <p className="text-xs text-gray-400">or click to browse (multiple files supported)</p>
           </label>
         </div>
 
-        {/* Upload Status */}
-        {uploadStatus.status !== 'idle' && uploadStatus.status !== 'uploading' && (
-          <div
-            className={`mx-4 mb-4 p-3 rounded-md flex items-start gap-2 ${
-              uploadStatus.status === 'success'
-                ? 'bg-green-50 text-green-800'
-                : 'bg-red-50 text-red-800'
-            }`}
-          >
-            {uploadStatus.status === 'success' ? (
-              <CheckCircle className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            )}
-            <p className="text-sm">{uploadStatus.message}</p>
+        {/* Upload Progress */}
+        {uploadQueue.length > 0 && (
+          <div className="mx-4 mb-4 space-y-2 max-h-48 overflow-y-auto">
+            {uploadQueue.map((item, index) => (
+              <div
+                key={`${item.filename}-${index}`}
+                className={`p-2 rounded-md flex items-center gap-2 text-sm ${
+                  item.status === 'success'
+                    ? 'bg-green-50 text-green-800'
+                    : item.status === 'error'
+                    ? 'bg-red-50 text-red-800'
+                    : item.status === 'uploading'
+                    ? 'bg-blue-50 text-blue-800'
+                    : 'bg-gray-50 text-gray-600'
+                }`}
+              >
+                {item.status === 'uploading' ? (
+                  <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+                ) : item.status === 'success' ? (
+                  <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                ) : item.status === 'error' ? (
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <div className="w-4 h-4 flex-shrink-0 rounded-full border-2 border-gray-300" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="truncate font-medium">{item.filename}</p>
+                  {item.message && (
+                    <p className="text-xs truncate opacity-75">{item.message}</p>
+                  )}
+                </div>
+                {(item.status === 'success' || item.status === 'error') && (
+                  <button
+                    onClick={() => clearUploadItem(index)}
+                    className="p-1 hover:bg-black/10 rounded"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -168,7 +245,7 @@ export default function BriefBank() {
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">
-                      {brief.title || brief.filename}
+                      {brief.title || brief.case_name || brief.filename}
                     </p>
                     <p className="text-xs text-gray-500">
                       {brief.court || 'Unknown court'} •{' '}
@@ -190,7 +267,7 @@ export default function BriefBank() {
             <div className="p-4 border-b border-gray-200 flex items-start justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
-                  {briefDetails.brief.title || briefDetails.brief.filename}
+                  {briefDetails.brief.title || briefDetails.brief.case_name || briefDetails.brief.filename}
                 </h2>
                 <div className="mt-1 flex items-center gap-4 text-sm text-gray-500">
                   <span>{briefDetails.brief.court}</span>
