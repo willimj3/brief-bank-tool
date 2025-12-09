@@ -99,7 +99,11 @@ Return ONLY valid JSON, no other text."""
 
     try:
         import json
-        result = json.loads(response.content[0].text)
+        # Clean up potential markdown code block wrapping around JSON
+        response_text = response.content[0].text
+        response_text = re.sub(r'^```\w*\s*', '', response_text.strip())
+        response_text = re.sub(r'```\s*$', '', response_text.strip())
+        result = json.loads(response_text)
 
         outline_sections = []
         for section_data in result.get("sections", []):
@@ -123,6 +127,33 @@ Return ONLY valid JSON, no other text."""
     except (json.JSONDecodeError, KeyError) as e:
         # Fallback to default outline
         return _default_outline(matter)
+
+
+def _clean_markdown_artifacts(text: str) -> str:
+    """
+    Remove markdown formatting artifacts from generated text.
+
+    Cleans up:
+    - Code blocks (```json, ```, etc.)
+    - Markdown headers (###, ##, etc.) that shouldn't appear in legal briefs
+    - Extra whitespace from removed artifacts
+    """
+    # Remove code block markers (```json, ```python, ```, etc.)
+    text = re.sub(r'```\w*\s*', '', text)
+    text = re.sub(r'```', '', text)
+
+    # Remove markdown headers that appear mid-text (### A., ## B., etc.)
+    # Keep Roman numeral headers like "I. INTRODUCTION" but remove markdown #
+    # Only remove # at start of lines, not # in middle of text
+    text = re.sub(r'^#{1,6}\s*', '', text, flags=re.MULTILINE)
+
+    # Clean up any leftover empty lines from removed content
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # Strip leading/trailing whitespace
+    text = text.strip()
+
+    return text
 
 
 def _default_outline(matter: NewMatterRequest) -> list[OutlineSection]:
@@ -293,6 +324,9 @@ Section content:"""
             adaptations = metadata.get("adaptations", [])
         except json.JSONDecodeError:
             pass
+
+    # Clean up markdown artifacts from the content
+    content = _clean_markdown_artifacts(content)
 
     # Map citation texts to Citation objects
     used_citation_objects = []
